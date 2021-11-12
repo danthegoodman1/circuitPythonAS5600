@@ -34,7 +34,7 @@ class RegDescriptor:
 
         # buff = obj.i2c.readfrom_mem(obj.device,self.reg,self.buffsize)
         buff = bytearray(self.buffsize)
-        obj.i2c.readfrom_into(obj.device, buff, end = self.buffsize)
+        obj.i2c.readfrom_into(obj.device, buff, start = self.reg)
 
         if self.buffsize == 2:
             v = unpack(">H",buff)[0]  #2 bytes big endian
@@ -71,13 +71,15 @@ class RegDescriptor:
             buff = pack(">H",oldvalue)
         else:
             buff = pack(">B",oldvalue)
-        while not obj.i2c.try_lock():
-            pass
-        obj.i2c.writeto(obj.device,self.reg,buff) # write result back to the AS5600
+        print('lcoking')
+        # while not obj.i2c.try_lock():
+            # pass
+        obj.i2c.writeto(obj.device, buff, start=self.reg) # write result back to the AS5600
 
         #must write the new value into the cache
         self.cache[self.reg] = oldvalue
-        obj.i2c.unlock()
+        # obj.i2c.unlock()
+        print('unlocked')
 
 
 
