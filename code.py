@@ -18,7 +18,7 @@ def main():
 
 
 def test():
-    i2c = busio.I2C(GP1, GP0)
+    i2c = busio.I2C(GP1, GP0, frequency = 400000)
     while not i2c.try_lock():
         pass
     d = i2c.scan()
@@ -27,6 +27,16 @@ def test():
         if i == addr:
             print("yeah", i)
     i2c.unlock()
+    print("reading registers:")
+    while True:
+        buffer = bytearray(2)
+        print("pre buff", buffer, len(buffer))
+        while not i2c.try_lock():
+            pass
+        i2c.readfrom_into(AS5600_id, buffer, start = 0x0b, end = 0x0c)
+        i2c.unlock()
+        print("buffer:", buffer)
+        sleep(2)
 
 def ttt():
     #The class AS5600 is pretty low level.
