@@ -29,13 +29,17 @@ def test():
     i2c.unlock()
     print("reading registers:")
     while True:
-        buffer = bytearray(2)
-        print("pre buff", buffer, len(buffer))
         while not i2c.try_lock():
             pass
-        i2c.readfrom_into(AS5600_id, buffer, start = 0x0b, end = 0x0c)
+        # Write first
+        i2c.writeto(AS5600_id, bytearray([0x0b]))
+        print("wrote")
+        # Then read
+        buffer = bytearray(2)
+        i2c.readfrom_into(AS5600_id, buffer)
+        # i2c.readfrom_into(AS5600_id, buffer, start = 0x0b, end = 0x0c)
         i2c.unlock()
-        print("buffer:", buffer)
+        print("buffer:", buffer[0], buffer[1])
         sleep(2)
 
 def ttt():
