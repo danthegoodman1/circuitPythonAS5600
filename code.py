@@ -33,14 +33,15 @@ def test():
             pass
         # Write first
         i2c.writeto(AS5600_id, bytearray([0x0b]))
-        print("wrote")
+        # TODO: Try with I2CDevice too?
         # Then read
         buffer = bytearray(2)
         i2c.readfrom_into(AS5600_id, buffer)
         # i2c.readfrom_into(AS5600_id, buffer, start = 0x0b, end = 0x0c)
         i2c.unlock()
         print("buffer:", buffer[0], buffer[1])
-        sleep(2)
+        print("MD:", buffer[0]&32 != 0)
+        sleep(0.5)
 
 def ttt():
     #The class AS5600 is pretty low level.
