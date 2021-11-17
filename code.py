@@ -35,12 +35,15 @@ def test():
         i2c.writeto(AS5600_id, bytearray([0x0b]))
         # TODO: Try with I2CDevice too?
         # Then read
-        buffer = bytearray(2)
+        buffer = bytearray(3)
         i2c.readfrom_into(AS5600_id, buffer)
         # i2c.readfrom_into(AS5600_id, buffer, start = 0x0b, end = 0x0c)
         i2c.unlock()
-        print("buffer:", buffer[0], buffer[1])
-        print("MD:", buffer[0]&32 != 0)
+        print("buffer:", buffer[0], buffer[1], buffer[2])
+        print("Magnet detected:", buffer[0]&32 != 0)
+        print("Magnet too weak:", buffer[0]&16 != 0)
+        print("Magnet too strong:", buffer[0]&8 != 0)
+        print("Magnitude:", (buffer[1]<<4)|buffer[2])
         sleep(0.5)
 
 def ttt():
