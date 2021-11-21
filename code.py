@@ -51,7 +51,7 @@ def test():
         buffer = bytearray(1)
         i2c.readfrom_into(AS5600_id, buffer)
         angLow = buffer[0]
-        print("Magnitude:", (angHi<<8)|angLow)
+        print("Magnitude:", (angHi<<8)|angLow, "in deg:", (360/4096)*((angHi<<8)|angLow))
         i2c.unlock()
         sleep(0.5)
 
