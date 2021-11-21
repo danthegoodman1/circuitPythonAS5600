@@ -43,15 +43,15 @@ def test():
         print("Magnet too weak:", buffer[0]&16 != 0)
         print("Magnet too strong:", buffer[0]&8 != 0)
         # Get angle
-        i2c.writeto(AS5600_id, bytearray([0x0e]))
+        i2c.writeto(AS5600_id, bytearray([0x0c]))
         buffer = bytearray(1)
         i2c.readfrom_into(AS5600_id, buffer)
         angHi = buffer[0]
-        i2c.writeto(AS5600_id, bytearray([0x0f]))
+        i2c.writeto(AS5600_id, bytearray([0x0d]))
         buffer = bytearray(1)
         i2c.readfrom_into(AS5600_id, buffer)
         angLow = buffer[0]
-        print("Magnitude:", (angHi<<4)|angLow)
+        print("Magnitude:", (angHi<<8)|angLow)
         i2c.unlock()
         sleep(0.5)
 
