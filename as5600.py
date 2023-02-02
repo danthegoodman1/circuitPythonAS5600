@@ -6,9 +6,8 @@ m12 = (1<<12)-1  #0xFFF
 AS5600_id = 0x36
 
 REGS=namedtuple('REGS','ZMCO ZPOS MPOS MANG CONF RAWANGLE ANGLE  STATUS AGC MAGNITUDE BURN')
-r = REGS(0,1,3,5,7,0xc,0xe,0x0b,0x1a,0xb,0xff)
+r = REGS(0,1,3,5,7,0xc,0xe,0xb,0x1a,0x1b,0xff)
 
-#You cant overwrite __attribute__ in micropython but you can use Descriptors
 class RegDescriptor:
     "Read and write a bit field from a register"
 
@@ -26,32 +25,30 @@ class RegDescriptor:
         "Read an I2C register"
         while not obj.i2c.try_lock():
             pass
-        #cache those registers with values that will not change.
-        #Dont bother caching bit fields.
-        if self.reg in obj.cache:
-            return obj.cache[self.reg]
-        #print ('reading now the actual device now')
+        try:
+            #cache those registers with values that will not change.
+            #Dont bother caching bit fields.
+            if self.reg in obj.cache:
+                return obj.cache[self.reg]
 
-        # buff = obj.i2c.readfrom_mem(obj.device,self.reg,self.buffsize)
-        buff = bytearray(self.buffsize)
-        obj.i2c.readfrom_into(obj.device, buff, start = self.reg)
+            buff = bytearray(self.buffsize)
+            obj.i2c.writeto_then_readfrom(obj.device, bytes([self.reg]), buff)
 
-        if self.buffsize == 2:
-            v = unpack(">H",buff)[0]  #2 bytes big endian
-        else:
-            v = unpack(">B",buff)[0]
+            if self.buffsize == 2:
+                v = unpack(">H",buff)[0]  #2 bytes big endian
+            else:
+                v = unpack(">B",buff)[0]
 
-        #cache writeable values since they are the ones that will not change in useage
-        if self.reg in self.writeable:
-            obj.cache[self.reg] = v
-        obj.i2c.unlock()
+            #cache writeable values since they are the ones that will not change in usage
+            if self.reg in self.writeable:
+                obj.cache[self.reg] = v
+        finally:
+            obj.i2c.unlock()
         return v
 
     def __get__(self,obj,objtype):
         "Get the register then extract the bit field"
         v = self.get_register(obj)
-        if self.reg == 11:
-            print("GET", self.reg,self.shift,self.mask)
         v >>= self.shift
         v &= self.mask
         return v
@@ -61,25 +58,23 @@ class RegDescriptor:
         if not self.reg in self.writeable:
             raise AttributeError('Register is not writable')
         oldvalue = self.get_register(obj)
-        #oldvalue <<= self.shift # get_register() does a shift, so we have to shift it back
-        insertmask = 0xffff - (self.mask << self.shift) #make a mask for a hole
-        oldvalue &= insertmask # AND a hole in the old value
+        insertmask = 0xffff ^ (self.mask << self.shift) #make a mask for a hole
+        oldvalue &= insertmask # use the mask to make a hole in the old value
         value &= self.mask # mask our new value in case it is too big
-        value <<= self.shift
+        value <<= self.shift # shift it into place
         oldvalue |= value  # OR the new value back into the hole
         if self.buffsize == 2:
             buff = pack(">H",oldvalue)
         else:
             buff = pack(">B",oldvalue)
-        print('lcoking')
-        # while not obj.i2c.try_lock():
-            # pass
-        obj.i2c.writeto(obj.device, buff, start=self.reg) # write result back to the AS5600
-
-        #must write the new value into the cache
-        self.cache[self.reg] = oldvalue
-        # obj.i2c.unlock()
-        print('unlocked')
+        while not obj.i2c.try_lock():
+            pass
+        try:
+            obj.i2c.writeto(obj.device, bytes([self.reg]) + buff) # write result back to the AS5600
+            #must write the new value into the cache
+            obj.cache[self.reg] = oldvalue
+        finally:
+            obj.i2c.unlock()
 
 
 
@@ -94,43 +89,44 @@ class AS5600:
     #1. we read one or two bytes from i2c
     #2. We shift the value so that the least significant bit is bit zero
     #3. We mask off the bits required  (most values are 12 bits hence m12)
-    ZMCO=      RegDescriptor(r.ZMCO,shift=0,mask=3,buffsize=1) #1 bit
-    ZPOS=      RegDescriptor(r.ZPOS,0,m12) #zero position
-    MPOS=      RegDescriptor(r.MPOS,0,m12) #maximum position
-    MANG=      RegDescriptor(r.MANG,0,m12) #maximum angle (alternative to above)
-    #Dummy example how how to make friendlier duplicate names if you want to
-    #max_angle = RegDescriptor(r.MANG,0,m12) #maximum angle (alternative to above)
-    CONF=      RegDescriptor(r.CONF,0,(1<<14)-1) # this register has 14 bits (see below)
-    RAWANGLE=  RegDescriptor(r.RAWANGLE,0,m12)
-    ANGLE   =  RegDescriptor(r.ANGLE,0,m12) #angle with various adjustments (see datasheet)
-    STATUS=    RegDescriptor(r.STATUS,0,m12) #basically strength of magnet
-    AGC=       RegDescriptor(r.AGC,0,0xF,1) #automatic gain control
-    MAGNITUDE= RegDescriptor(r.MAGNITUDE,0,m12) #? something to do with the CORDIC for atan RTFM
-    BURN=      RegDescriptor(r.BURN,0,0xF,1)
+    ZMCO=      RegDescriptor(r.ZMCO,0,3,1)          # 2-bits
+    ZPOS=      RegDescriptor(r.ZPOS,0,m12)          # zero position
+    MPOS=      RegDescriptor(r.MPOS,0,m12)          # maximum position
+    MANG=      RegDescriptor(r.MANG,0,m12)          # maximum angle (alternative to above)
+    CONF=      RegDescriptor(r.CONF,0,(1<<14)-1)    # this register has 14 bits (see below)
+    RAWANGLE=  RegDescriptor(r.RAWANGLE,0,m12)      # raw angle (0-4095)
+    ANGLE   =  RegDescriptor(r.ANGLE,0,m12)         # angle with various adjustments (see datasheet)
+    STATUS=    RegDescriptor(r.STATUS,0,m12)        # magnet detection/field strength
+    AGC=       RegDescriptor(r.AGC,0,0xF,1)         # automatic gain control
+    MAGNITUDE= RegDescriptor(r.MAGNITUDE,0,m12)     # ? something to do with the CORDIC for atan RTFM
+    BURN=      RegDescriptor(r.BURN,0,0xF,1)        # Used for burning changes to ZPOS/MPOS/MANG (limited number of uses!)
 
     #Configuration bit fields
-    PM =      RegDescriptor(r.CONF,0,0x3) #2bits Power mode
-    HYST =    RegDescriptor(r.CONF,2,0x3) # hysteresis for smoothing out zero crossing
-    OUTS =    RegDescriptor(r.CONF,4,0x3) # HARDWARE output stage ie analog (low,high)  or PWM
-    PWMF =    RegDescriptor(r.CONF,6,0x3) #pwm frequency
-    SF =      RegDescriptor(r.CONF,8,0x3) #slow filter (?filters glitches harder) RTFM
-    FTH =     RegDescriptor(r.CONF,10,0x7) #3 bits fast filter threshold. RTFM
-    WD =      RegDescriptor(r.CONF,13,0x1) #1 bit watch dog - Kicks into low power mode if nothing changes
+    PM =      RegDescriptor(r.CONF,0,0x3)   # 2bits Power mode
+    HYST =    RegDescriptor(r.CONF,2,0x3)   # hysteresis for smoothing out zero crossing
+    OUTS =    RegDescriptor(r.CONF,4,0x3)   # HARDWARE output stage ie analog (low,high)  or PWM
+    PWMF =    RegDescriptor(r.CONF,6,0x3)   # PWM frequency
+    SF =      RegDescriptor(r.CONF,8,0x3)   # slow filter (?filters glitches harder) RTFM
+    FTH =     RegDescriptor(r.CONF,10,0x7)  # 3 bits fast filter threshold. RTFM
+    WD =      RegDescriptor(r.CONF,13,0x1)  # 1 bit watch dog - Kicks into low power mode if nothing changes
 
-    #status bit fields. ?having problems getting these to make sense
-    MH =      RegDescriptor(r.STATUS,3,0x1) #2bits  Magnet too strong (high)
-    ML =      RegDescriptor(r.STATUS,4,0x1) #2bits  Magnet too weak (low)
-    MD =      RegDescriptor(r.STATUS,5,0x1) #2bits  Magnet detected
+    #status bit fields.
+    MH =      RegDescriptor(r.STATUS,3,0x1,1) #1 bit  Magnet too strong (high)
+    ML =      RegDescriptor(r.STATUS,4,0x1,1) #1 bit  Magnet too weak (low)
+    MD =      RegDescriptor(r.STATUS,5,0x1,1) #1 bit  Magnet detected
+    MS =      RegDescriptor(r.STATUS,3,0x7,1) #3 bits Magnet Status: MD/ML/MH combined as per STATUS but shifted down to bits 1-3
 
     def scan(self):
         "Debug utility function to check your i2c bus"
         while not self.i2c.try_lock():
             pass
-        devices = self.i2c.scan()
-        print(devices)
-        if AS5600_id in devices:
-            print('Found AS5600 (id =',hex(AS5600_id),')')
-        self.i2c.unlock()
+        try:
+            devices = self.i2c.scan()
+            print(devices)
+            if AS5600_id in devices:
+                print('Found AS5600 (id =',hex(AS5600_id),')')
+        finally:
+            self.i2c.unlock()        
         print(self.CONF)
 
     def burn_angle(self):
@@ -138,7 +134,7 @@ class AS5600:
         self.BURN = 0x80
 
     def burn_setting(self):
-        "Burn config and mang- (can only do this once)"
+        "Burn CONF and MANG- (can only do this once)"
         self.BURN = 0x40
 
     def magnet_status(self):
@@ -157,14 +153,3 @@ class AS5600:
         if self.MH == 1:
             s+ " (magnet too strong)"
         return s
-
-
-# i2c = I2C(0,scl=Pin(17),sda=Pin(16),freq=400000)
-
-
-# z = AS5600(i2c,AS5600_id)
-# z.scan()
-# whatever = 89
-# while True:
-#     print(z.MD)
-#     sleep(1)
